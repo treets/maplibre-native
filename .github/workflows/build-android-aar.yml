@@ -1,0 +1,83 @@
+# Android AAR build workflow for a patched maplibre-native fork.
+#
+# How to use:
+# 1. Copy this file to .github/workflows/build-android-aar.yml in your fork of maplibre-native
+# 2. Make sure the two C++ patches are already committed (same patches as for iOS)
+# 3. Go to Actions → "Build patched Android AAR" → Run workflow
+# 4. After ~1-2h, a GitHub Release is created with the .aar file
+# 5. The download URL is predictable:
+#    https://github.com/treets/maplibre-native/releases/download/android-v12.2.3-heatmap-fix/MapLibreAndroid-opengl-Release.aar
+
+name: Build patched Android AAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_suffix:
+        description: 'Version suffix (e.g. 12.2.3-heatmap-fix)'
+        required: true
+        default: '12.2.3-heatmap-fix'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        working-directory: platform/android
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up NDK
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "ndk;27.1.12297006" \
+            "cmake;3.22.1" 2>/dev/null || true
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+
+      - name: Build AAR (opengl, Release)
+        env:
+          RENDERER: opengl
+          BUILDTYPE: Release
+        run: |
+          make apackage
+
+      - name: Rename AAR
+        run: |
+          aar=$(find MapLibreAndroid/build/outputs/aar -name "*opengl*release*.aar" | head -1)
+          if [ -z "$aar" ]; then
+            aar=$(find MapLibreAndroid/build/outputs/aar -name "*.aar" | head -1)
+          fi
+          echo "Found AAR: $aar"
+          cp "$aar" ../../MapLibreAndroid-opengl-Release.aar
+        working-directory: platform/android
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: android-v${{ github.event.inputs.version_suffix }}
+          tag_name: android-v${{ github.event.inputs.version_suffix }}
+          prerelease: true
+          body: |
+            Patched build of maplibre-native Android ${{ github.event.inputs.version_suffix }}
+
+            **Fixes:**
+            - render_target.cpp: heatmap clear alpha 1.0 → 0.0 (variable initial intensity)
+            - render_heatmap_layer.cpp: remove ghost drawables on layerTweaker reset (panning accumulation)
+
+            **Download URL (use in withAndroidMaplibreFix.js):**
+            ```
+            https://github.com/${{ github.repository }}/releases/download/android-v${{ github.event.inputs.version_suffix }}/MapLibreAndroid-opengl-Release.aar
+            ```
+          files: MapLibreAndroid-opengl-Release.aar
