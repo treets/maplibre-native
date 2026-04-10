@@ -1,0 +1,96 @@
+# Simplified iOS XCFramework build workflow for a patched maplibre-native fork.
+#
+# How to use:
+# 1. Copy this file to .github/workflows/build-xcframework.yml in your fork of maplibre-native
+# 2. Commit the two C++ patches (render_target.cpp + render_heatmap_layer.cpp)
+# 3. Go to Actions → "Build patched XCFramework" → Run workflow
+# 4. After ~1-2h, a GitHub Release is created with MapLibre.dynamic.xcframework.zip
+# 5. Copy the release asset URL and compute the checksum:
+#    swift package compute-checksum MapLibre.dynamic.xcframework.zip
+# 6. Update your maplibre-gl-native-distribution fork's Package.swift with the URL + checksum
+
+name: Build patched XCFramework
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_suffix:
+        description: 'Version suffix (e.g. 6.22.1-heatmap-fix)'
+        required: true
+        default: '6.22.1-heatmap-fix'
+
+jobs:
+  build:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: platform/ios
+        shell: bash
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build XCFramework (Dynamic)
+        run: |
+          bazel build \
+            --compilation_mode=opt \
+            --features=dead_strip,thin_lto \
+            --objc_enable_binary_stripping \
+            --apple_generate_dsym \
+            --output_groups=+dsyms \
+            --//:renderer=metal \
+            //platform/ios:MapLibre.dynamic \
+            --embed_label=maplibre_ios_${{ github.event.inputs.version_suffix }}
+
+          echo xcframework="$(bazel info execution_root)"/"$(bazel cquery \
+            --output=files \
+            --compilation_mode=opt \
+            --//:renderer=metal \
+            //platform/ios:MapLibre.dynamic)" >> "$GITHUB_ENV"
+
+      - name: Package zip
+        working-directory: .
+        run: |
+          cp ${{ env.xcframework }} MapLibre.dynamic.xcframework.zip
+          chmod +w MapLibre.dynamic.xcframework.zip
+          zip MapLibre.dynamic.xcframework.zip LICENSE.md
+
+      - name: Compute checksum
+        working-directory: .
+        run: |
+          checksum=$(swift package compute-checksum MapLibre.dynamic.xcframework.zip)
+          echo "checksum=$checksum" >> "$GITHUB_ENV"
+          echo "### XCFramework Checksum" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$checksum" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.event.inputs.version_suffix }}
+          tag_name: ios-v${{ github.event.inputs.version_suffix }}
+          prerelease: true
+          body: |
+            Patched build of maplibre-native ${{ github.event.inputs.version_suffix }}
+
+            **Fixes:**
+            - render_target.cpp: heatmap clear alpha 1.0 → 0.0 (variable initial intensity)
+            - render_heatmap_layer.cpp: remove ghost drawables on layerTweaker reset (panning accumulation)
+
+            **XCFramework checksum:**
+            `${{ env.checksum }}`
+
+            **Package.swift entry:**
+            ```swift
+            .binaryTarget(
+                name: "MapLibre",
+                url: "https://github.com/${{ github.repository }}/releases/download/ios-v${{ github.event.inputs.version_suffix }}/MapLibre.dynamic.xcframework.zip",
+                checksum: "${{ env.checksum }}")
+            ```
+          files: MapLibre.dynamic.xcframework.zip
