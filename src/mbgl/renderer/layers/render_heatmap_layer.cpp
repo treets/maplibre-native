@@ -217,6 +217,10 @@ void RenderHeatmapLayer::update(gfx::ShaderRegistry& shaders,
 
     stats.drawablesRemoved += tileLayerGroup->removeDrawablesIf(
         [&](gfx::Drawable& drawable) { return drawable.getTileID() && !hasRenderTile(*drawable.getTileID()); });
+    
+    stats.drawablesRemoved +=
+        tileLayerGroup->removeDrawablesIf(
+            [&](gfx::Drawable& drawable) { return drawable.getLayerTweaker() != layerTweaker; });
 
     const auto& evaluated = static_cast<const HeatmapLayerProperties&>(*evaluatedProperties).evaluated;
     std::optional<StringIDSetsPair> propertiesAsUniforms;
