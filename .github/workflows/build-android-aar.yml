@@ -51,8 +51,9 @@ jobs:
           # assembleOpenglRelease targets only the library module (not MapLibreAndroidTestApp).
           # make apackage builds the whole project and fails due to a Kotlin stdlib version
           # mismatch in the test app's transitive deps (kotlin-stdlib 2.2.20 vs expected 2.0.0).
-          # -x download skips the Vulkan validation layers download (not needed for opengl).
-          ./gradlew :MapLibreAndroid:assembleOpenglRelease -x download
+          # -x download -x unzip skips the Vulkan validation layers download+unpack
+          # (DownloadVulkanValidationPlugin tasks — only needed for the Vulkan renderer).
+          ./gradlew :MapLibreAndroid:assembleOpenglRelease -x download -x unzip
 
       - name: Rename AAR
         run: |
