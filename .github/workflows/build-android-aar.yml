@@ -47,11 +47,12 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
 
       - name: Build AAR (opengl, Release)
-        env:
-          RENDERER: opengl
-          BUILDTYPE: Release
         run: |
-          make apackage
+          # assembleOpenglRelease targets only the library module (not MapLibreAndroidTestApp).
+          # make apackage builds the whole project and fails due to a Kotlin stdlib version
+          # mismatch in the test app's transitive deps (kotlin-stdlib 2.2.20 vs expected 2.0.0).
+          # -x download skips the Vulkan validation layers download (not needed for opengl).
+          ./gradlew :MapLibreAndroid:assembleOpenglRelease -x download
 
       - name: Rename AAR
         run: |
